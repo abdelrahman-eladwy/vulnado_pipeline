@@ -1,0 +1,39 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: clone-read-run-
+spec:
+  pipelineRef:
+    name: vulnado-pipeline
+  podTemplate:
+    container:
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        capabilities:
+          drop:
+            - "ALL"
+        seccompProfile:
+          type: RuntimeDefault
+  workspaces:
+    - name: shared-data
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    - name: nexus-credentials
+      secret:
+        secretName: sca-credentials
+  params:
+    - name: repo-url
+      value: https://github.com/ScaleSec/vulnado.git
+    - name: revision
+      value: master
+    - name: nexus-iq-url
+      value: "http://34.1.41.80:8070"
+    - name: nexus-iq-username
+      value: "admin"
+    - name: app-id
+      value: "vulnado"

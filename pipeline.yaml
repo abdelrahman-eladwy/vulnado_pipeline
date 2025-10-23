@@ -1,0 +1,67 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: vulnado-pipeline
+spec:
+  description: |
+    Pipeline that clones a Git repo, then prints README.md to stdout.
+  params:
+    - name: repo-url
+      type: string
+      description: The Git repository URL.
+    - name: revision
+      type: string
+      description: Optional git revision (branch, tag, or commit).
+      default: master
+    - name: nexus-iq-url
+      type: string
+      description: Nexus IQ Server URL
+      default: "http://34.1.41.80:8070"
+    - name: nexus-iq-username
+      type: string
+      description: Nexus IQ username
+      default: "admin"
+    - name: app-id
+      type: string
+      description: Application id reported to IQ
+      default: "vulnado"
+  workspaces:
+    - name: shared-data
+      description: Workspace for the cloned repo.
+    - name: nexus-credentials
+      description: Workspace for Nexus IQ credentials
+  tasks:
+    - name: fetch-source
+      taskRef:
+        name: git-clone-restricted
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+      workspaces:
+        - name: output
+          workspace: shared-data
+    - name: build-application
+      runAfter: ["fetch-source"]
+      taskRef:
+        name: vulnado-build
+      workspaces:
+        - name: source
+          workspace: shared-data
+    - name: sca-evaluate
+      runAfter: ["build-application"]
+      taskRef:
+        name: sca-sonatype-iq
+      params:
+        - name: nexus-iq-url
+          value: $(params.nexus-iq-url)
+        - name: iq-application-id
+          value: $(params.app-id)
+        - name: sonatype-auth-secret
+          value: "nexus-iq-credentials"
+      workspaces:
+        - name: source
+          workspace: shared-data
+        - name: reports
+          workspace: shared-data

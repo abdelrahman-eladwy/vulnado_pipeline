@@ -1,0 +1,62 @@
+
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: sca-sonatype-iq
+spec:
+  description: |
+    Task that performs a Sonatype Nexus IQ scan on the built application.
+  workspaces:
+    - name: source
+      description: The workspace containing the built application
+    - name: reports
+      description: The workspace where scan reports will be stored
+  params:
+    - name: nexus-iq-url
+      type: string
+      description: The URL of the Sonatype Nexus IQ Server.
+    - name: iq-application-id
+      type: string
+      description: The application ID in Nexus IQ Server.
+    - name: sonatype-auth-secret
+      type: string
+      description: The name of the Kubernetes secret containing Sonatype credentials.
+      default: "sca-credentials"
+  steps:
+    - name: sonatype-scan
+      image: sonatype/nexus-iq-cli:latest
+      env:
+        - name: SONATYPE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: $(params.sonatype-auth-secret)
+              key: username
+        - name: SONATYPE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: $(params.sonatype-auth-secret)
+              key: password
+      script: |
+        #!/bin/sh
+        set -e
+       
+        # Ensure reports directory exists
+        mkdir -p $(workspaces.reports.path)
+ 
+        # Create an empty debug log file
+        touch $(workspaces.reports.path)/debug.log
+       
+        # Run the Sonatype scan with credentials from environment variables
+        /sonatype/evaluate \
+          -s $(params.nexus-iq-url) \
+          -a "${SONATYPE_USERNAME}:${SONATYPE_PASSWORD}" \
+          -i $(params.iq-application-id) \
+          $(workspaces.source.path)/target/vulnado-0.0.1-SNAPSHOT.jar > $(workspaces.reports.path)/scan-output.txt 2>&1
+
+        echo "Scan complete. Check the reports in $(workspaces.reports.path)/"
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault

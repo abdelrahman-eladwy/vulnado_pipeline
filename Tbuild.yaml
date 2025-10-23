@@ -1,0 +1,25 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: vulnado-build
+spec:
+  description: |
+    Task that builds the application using the provided build tool.
+  workspaces:
+    - name: source
+      description: The workspace containing the source code to build
+  steps:
+    - name: maven-build
+      image: maven:3.9.5-eclipse-temurin-17
+      script: |
+        #!/bin/sh
+        set -e
+        mkdir -p $(workspaces.source.path)/.m2
+        cd $(workspaces.source.path)
+        mvn -Dmaven.repo.local=$(workspaces.source.path)/.m2/repository clean package
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
