@@ -1,0 +1,70 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: sast
+spec:
+  description: |
+    Task that performs SAST scanning using a Fortify ScanCentral SAST.
+  workspaces:
+    - name: source
+      description: The workspace containing the source code to scan
+  params:
+    - name: ssc-url
+      type: string
+      description: The URL of the Fortify Software Security Center (SSC) server.
+    - name: ssc-application-id
+      type: string
+      description: The application ID in SSC.
+    - name: sensor-version
+      type: string
+      description: The version of the Fortify SAST sensor to use.
+      default: "25.2"
+    - name: ssc-auth-secret
+      type: string
+      description: The name of the Kubernetes secret containing SSC credentials.
+      default: "ssc-credentials"
+    - name: client-auth-token-secret
+      type: string
+      description: The name of the Kubernetes secret containing Client Auth Token credentials.
+  steps:
+    - name: sast
+      image: fortifydocker/fortify-ci-tools:latest-jdk-17
+      env:
+        - name: HOME
+          value: /workspace/source
+        - name: SSC_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ssc-auth-secret)
+              key: username
+        - name: SSC_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ssc-auth-secret)
+              key: password
+        - name: CLIENT_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.client-auth-token-secret)
+              key: token
+      script: |
+        #!/bin/sh
+          set -e
+          echo "[INFO] HOME is set to $HOME"
+          mkdir -p "$HOME/.fortify"
+
+          fcli ssc session login --client-auth-token=${CLIENT_AUTH_TOKEN} --user=${SSC_USERNAME} --password=${SSC_PASSWORD} --url=$(params.ssc-url) --insecure
+
+          cd $(workspaces.source.path)
+          echo "[INFO] Current directory: $(pwd)"
+          ls -la
+
+          scancentral package -bt none -o package.zip
+          fcli sc-sast scan start --publish-to=$(params.ssc-application-id) --sensor-version=$(params.sensor-version) --file=package.zip --store=Id
+
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault

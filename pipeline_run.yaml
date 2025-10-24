@@ -1,7 +1,7 @@
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  generateName: clone-read-run-
+  generateName: vulnado-run-
 spec:
   pipelineRef:
     name: vulnado-pipeline
@@ -23,9 +23,6 @@ spec:
           resources:
             requests:
               storage: 10Gi
-    - name: nexus-credentials
-      secret:
-        secretName: sca-credentials
   params:
     - name: repo-url
       value: https://github.com/ScaleSec/vulnado.git
@@ -37,3 +34,13 @@ spec:
       value: "admin"
     - name: app-id
       value: "vulnado"
+    - name: ssc-url
+      value: "http://34.1.41.80:8081/ssc"
+    - name: ssc-application-id
+      value: "10002"
+    - name: sensor-version
+      value: "25.2"
+    - name: ssc-auth-secret
+      value: "ssc-credentials"
+    - name: client-auth-token-secret
+      value: "client-auth-token-secret"

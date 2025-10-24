@@ -4,32 +4,41 @@ metadata:
   name: vulnado-pipeline
 spec:
   description: |
-    Pipeline that clones a Git repo, then prints README.md to stdout.
+    Pipeline that clones a Git repo, builds it, runs Sonatype IQ evaluation, and performs Fortify SAST scan.
   params:
     - name: repo-url
       type: string
       description: The Git repository URL.
     - name: revision
       type: string
-      description: Optional git revision (branch, tag, or commit).
       default: master
     - name: nexus-iq-url
       type: string
-      description: Nexus IQ Server URL
       default: "http://34.1.41.80:8070"
     - name: nexus-iq-username
       type: string
-      description: Nexus IQ username
       default: "admin"
     - name: app-id
       type: string
       description: Application id reported to IQ
-      default: "vulnado"
+    - name: ssc-url
+      type: string
+      default: "http://34.1.41.80:8081/ssc"
+    - name: ssc-application-id
+      type: string
+      default: "10002"
+    - name: sensor-version
+      type: string
+      default: "25.2"
+    - name: ssc-auth-secret
+      type: string
+      default: "ssc-credentials"
+    - name: client-auth-token-secret
+      type: string
+      default: "client-auth-token-secret"
   workspaces:
     - name: shared-data
-      description: Workspace for the cloned repo.
-    - name: nexus-credentials
-      description: Workspace for Nexus IQ credentials
+      description: Shared workspace for the repo and build artifacts
   tasks:
     - name: fetch-source
       taskRef:
@@ -42,6 +51,7 @@ spec:
       workspaces:
         - name: output
           workspace: shared-data
+
     - name: build-application
       runAfter: ["fetch-source"]
       taskRef:
@@ -49,6 +59,7 @@ spec:
       workspaces:
         - name: source
           workspace: shared-data
+
     - name: sca-evaluate
       runAfter: ["build-application"]
       taskRef:
@@ -59,9 +70,28 @@ spec:
         - name: iq-application-id
           value: $(params.app-id)
         - name: sonatype-auth-secret
-          value: "nexus-iq-credentials"
+          value: "sca-credentials"
       workspaces:
         - name: source
           workspace: shared-data
         - name: reports
           workspace: shared-data
+
+    - name: sast
+      runAfter: ["sca-evaluate"]
+      taskRef:
+        name: sast
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: ssc-url
+          value: $(params.ssc-url)
+        - name: ssc-application-id
+          value: $(params.ssc-application-id)
+        - name: sensor-version
+          value: $(params.sensor-version)
+        - name: ssc-auth-secret
+          value: $(params.ssc-auth-secret)
+        - name: client-auth-token-secret
+          value: $(params.client-auth-token-secret)
