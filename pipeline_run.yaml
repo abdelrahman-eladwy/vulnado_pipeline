@@ -6,15 +6,9 @@ spec:
   pipelineRef:
     name: vulnado-pipeline
   podTemplate:
-    container:
-      securityContext:
-        allowPrivilegeEscalation: false
-        runAsNonRoot: true
-        capabilities:
-          drop:
-            - "ALL"
-        seccompProfile:
-          type: RuntimeDefault
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
   workspaces:
     - name: shared-data
       volumeClaimTemplate:
@@ -35,12 +29,16 @@ spec:
     - name: app-id
       value: "vulnado"
     - name: ssc-url
-      value: "http://34.1.41.80:8081/ssc"
+      value: "http://34.1.41.80:8080/ssc"
     - name: ssc-application-id
-      value: "10002"
+      value: "10000"
     - name: sensor-version
       value: "25.2"
     - name: ssc-auth-secret
       value: "ssc-credentials"
     - name: client-auth-token-secret
       value: "client-auth-token-secret"
+    - name: image-tag
+      value: "v1.0.0"
+    - name: image-name
+      value: "vulnado-app"

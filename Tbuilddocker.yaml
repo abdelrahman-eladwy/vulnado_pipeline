@@ -1,0 +1,64 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-docker-image
+spec:
+  description: Task to build a Docker image from the source code.
+  workspaces:
+    - name: source
+      description: The workspace containing the source code.
+  params:
+    - name: image-name
+      type: string
+      description: The name of the Docker image to build.
+    - name: dockerfile-path
+      type: string
+      description: The path to the Dockerfile.
+      default: "./Dockerfile"
+    - name: context-path
+      type: string
+      description: The build context path.
+      default: "."
+    - name: image-tag
+      type: string
+      description: The tag for the Docker image.
+      default: "latest"
+  steps:
+    - name: build-image
+      image: quay.io/buildah/stable:latest
+      securityContext:
+        privileged: true
+      env:
+        - name: STORAGE_DRIVER
+          value: "vfs"
+        - name: _CONTAINERS_STORAGE_ROOT
+          value: "$(workspaces.source.path)/.container-data/storage"
+        - name: XDG_RUNTIME_DIR
+          value: "/tmp/run"
+      script: |
+        #!/bin/sh
+        set -e
+
+        echo "Setting up Buildah directories..."
+        mkdir -p "$_CONTAINERS_STORAGE_ROOT"
+        mkdir -p "$XDG_RUNTIME_DIR"
+
+        cd "$(workspaces.source.path)"
+
+        echo "Configuring registries.conf for Buildah non-root..."
+        mkdir -p ${XDG_RUNTIME_DIR}/containers
+        cat > ${XDG_RUNTIME_DIR}/containers/registries.conf <<'EOF'
+        unqualified-search-registries = ['docker.io']
+        EOF
+                export CONTAINERS_REGISTRIES_CONF=${XDG_RUNTIME_DIR}/containers/registries.conf
+
+                echo "Building container image $(params.image-name):$(params.image-tag)..."
+                buildah build-using-dockerfile \
+                  --storage-driver=$STORAGE_DRIVER \
+                  --tls-verify=false \
+                  -t $(params.image-name):$(params.image-tag) \
+                  -f $(params.dockerfile-path) \
+                  $(params.context-path)
+
+                echo "Image built successfully:"
+                buildah images | grep $(params.image-name) || true

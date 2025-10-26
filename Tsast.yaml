@@ -59,8 +59,9 @@ spec:
           echo "[INFO] Current directory: $(pwd)"
           ls -la
 
-          scancentral package -bt none -o package.zip
+          scancentral package -o package.zip
           fcli sc-sast scan start --publish-to=$(params.ssc-application-id) --sensor-version=$(params.sensor-version) --file=package.zip --store=Id
+          fcli sc-sast scan wait-for ::Id:: --interval=30s
 
       securityContext:
         allowPrivilegeEscalation: false

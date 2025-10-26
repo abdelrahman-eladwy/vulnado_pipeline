@@ -23,7 +23,7 @@ spec:
       description: Application id reported to IQ
     - name: ssc-url
       type: string
-      default: "http://34.1.41.80:8081/ssc"
+      default: "http://34.1.41.80:8080/ssc"
     - name: ssc-application-id
       type: string
       default: "10002"
@@ -36,6 +36,10 @@ spec:
     - name: client-auth-token-secret
       type: string
       default: "client-auth-token-secret"
+    - name: run-build
+      type: string
+      description: Flag to determine whether to run the SAST scan.
+      default: "a7a"
   workspaces:
     - name: shared-data
       description: Shared workspace for the repo and build artifacts
@@ -56,6 +60,10 @@ spec:
       runAfter: ["fetch-source"]
       taskRef:
         name: vulnado-build
+      when:
+        - input: "$(params.run-build)"
+          operator: in
+          values: ["false"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -64,6 +72,10 @@ spec:
       runAfter: ["build-application"]
       taskRef:
         name: sca-sonatype-iq
+      when:
+        - input: "$(params.run-build)"
+          operator: in
+          values: ["true"]
       params:
         - name: nexus-iq-url
           value: $(params.nexus-iq-url)
@@ -81,6 +93,10 @@ spec:
       runAfter: ["sca-evaluate"]
       taskRef:
         name: sast
+      when:
+        - input: "$(params.run-build)"
+          operator: in
+          values: ["true"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -95,3 +111,15 @@ spec:
           value: $(params.ssc-auth-secret)
         - name: client-auth-token-secret
           value: $(params.client-auth-token-secret)
+    - name: build-docker-image
+      runAfter: ["sast"]
+      taskRef:
+        name: build-docker-image
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: image-name
+          value: "vulnado-app"
+        - name: image-tag
+          value: "latest" 
