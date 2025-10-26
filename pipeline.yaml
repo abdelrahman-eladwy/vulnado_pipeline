@@ -4,11 +4,14 @@ metadata:
   name: vulnado-pipeline
 spec:
   description: |
-    Pipeline that clones a Git repo, builds it, runs Sonatype IQ evaluation, and performs Fortify SAST scan.
+    Pipeline that clones a Git repo, builds it, runs Sonatype IQ evaluation,
+    performs Fortify SAST scan, lint Dockerfile with Hadolint,
+    builds and pushes a Docker image to Docker Hub,
+    and finally scans it with Trivy.
+
   params:
     - name: repo-url
       type: string
-      description: The Git repository URL.
     - name: revision
       type: string
       default: master
@@ -20,13 +23,11 @@ spec:
       default: "admin"
     - name: app-id
       type: string
-      description: Application id reported to IQ
     - name: ssc-url
       type: string
       default: "http://34.1.41.80:8080/ssc"
     - name: ssc-application-id
       type: string
-      default: "10002"
     - name: sensor-version
       type: string
       default: "25.2"
@@ -38,11 +39,19 @@ spec:
       default: "client-auth-token-secret"
     - name: run-build
       type: string
-      description: Flag to determine whether to run the SAST scan.
-      default: "a7a"
+      default: "yes"
+    - name: dockerhub-username
+      type: string
+    - name: image-name
+      type: string
+      default: "vulnado-app"
+    - name: image-tag
+      type: string
+      default: "latest"
+
   workspaces:
     - name: shared-data
-      description: Shared workspace for the repo and build artifacts
+
   tasks:
     - name: fetch-source
       taskRef:
@@ -111,15 +120,52 @@ spec:
           value: $(params.ssc-auth-secret)
         - name: client-auth-token-secret
           value: $(params.client-auth-token-secret)
-    - name: build-docker-image
+
+    - name: hadolint-scan
       runAfter: ["sast"]
       taskRef:
+        name: hadolint-scan
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: dockerfile-path
+          value: "$(workspaces.source.path)/Dockerfile"
+
+    - name: build-docker-image
+      runAfter: ["hadolint-scan"]
+      taskRef:
         name: build-docker-image
+      when:
+        - input: "$(params.run-build)"
+          operator: in
+          values: ["false"]
       workspaces:
         - name: source
           workspace: shared-data
       params:
         - name: image-name
-          value: "vulnado-app"
+          value: $(params.image-name)
         - name: image-tag
-          value: "latest" 
+          value: $(params.image-tag)
+        - name: dockerhub-username
+          value: $(params.dockerhub-username)
+
+    - name: trivy-scan
+      runAfter: ["build-docker-image"]
+      taskRef:
+        name: trivy-scan
+      when:
+        - input: "$(params.run-build)"
+          operator: in
+          values: ["false"]
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: image-name
+          value: $(params.image-name)
+        - name: image-tag
+          value: $(params.image-tag)
+        - name: dockerhub-username
+          value: $(params.dockerhub-username)

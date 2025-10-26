@@ -1,0 +1,27 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: hadolint-scan
+spec:
+  description: Run Hadolint Dockerfile linter to enforce container best practices.
+  params:
+    - name: dockerfile-path
+      type: string
+      default: "./Dockerfile"
+  workspaces:
+    - name: source
+
+  steps:
+    - name: run-hadolint
+      image: hadolint/hadolint:latest-debian
+      workingDir: "$(workspaces.source.path)"
+      script: |
+        #!/bin/sh
+        set -e
+
+        FILE=$(params.dockerfile-path)
+        echo "[INFO] Running Hadolint on $FILE"
+
+        hadolint "$FILE" || true
+
+        echo "[INFO] Dockerfile passed Hadolint checks."

@@ -3,28 +3,30 @@ kind: Task
 metadata:
   name: build-docker-image
 spec:
-  description: Task to build a Docker image from the source code.
+  description: Build and push Docker image to Docker Hub using Buildah.
   workspaces:
     - name: source
-      description: The workspace containing the source code.
+      description: Workspace containing source code and build artifacts.
   params:
     - name: image-name
       type: string
-      description: The name of the Docker image to build.
+      description: Local name for the built image.
+    - name: image-tag
+      type: string
+      description: Tag for the built image.
+      default: "latest"
     - name: dockerfile-path
       type: string
-      description: The path to the Dockerfile.
       default: "./Dockerfile"
     - name: context-path
       type: string
-      description: The build context path.
       default: "."
-    - name: image-tag
+    - name: dockerhub-username
       type: string
-      description: The tag for the Docker image.
-      default: "latest"
+      description: Docker Hub account name.
+
   steps:
-    - name: build-image
+    - name: buildah-build-and-push
       image: quay.io/buildah/stable:latest
       securityContext:
         privileged: true
@@ -35,30 +37,52 @@ spec:
           value: "$(workspaces.source.path)/.container-data/storage"
         - name: XDG_RUNTIME_DIR
           value: "/tmp/run"
+      envFrom:
+        - secretRef:
+            name: dockerhub-credentials
       script: |
         #!/bin/sh
         set -e
 
-        echo "Setting up Buildah directories..."
+        echo "[INFO] Creating Buildah storage dirs"
         mkdir -p "$_CONTAINERS_STORAGE_ROOT"
         mkdir -p "$XDG_RUNTIME_DIR"
 
         cd "$(workspaces.source.path)"
 
-        echo "Configuring registries.conf for Buildah non-root..."
+        echo "[INFO] Configuring registries.conf"
         mkdir -p ${XDG_RUNTIME_DIR}/containers
-        cat > ${XDG_RUNTIME_DIR}/containers/registries.conf <<'EOF'
+        cat > ${XDG_RUNTIME_DIR}/containers/registries.conf <<EOF
         unqualified-search-registries = ['docker.io']
         EOF
                 export CONTAINERS_REGISTRIES_CONF=${XDG_RUNTIME_DIR}/containers/registries.conf
 
-                echo "Building container image $(params.image-name):$(params.image-tag)..."
-                buildah build-using-dockerfile \
-                  --storage-driver=$STORAGE_DRIVER \
-                  --tls-verify=false \
-                  -t $(params.image-name):$(params.image-tag) \
-                  -f $(params.dockerfile-path) \
-                  $(params.context-path)
+                LOCAL_IMAGE="$(params.image-name):$(params.image-tag)"
+                REMOTE_IMAGE="docker.io/$(params.dockerhub-username)/$(params.image-name):$(params.image-tag)"
 
-                echo "Image built successfully:"
-                buildah images | grep $(params.image-name) || true
+                echo "[INFO] Building image: $LOCAL_IMAGE"
+        buildah build-using-dockerfile \
+          --storage-driver=$STORAGE_DRIVER \
+          --root "$_CONTAINERS_STORAGE_ROOT" \
+          --tls-verify=false \
+          -t "$LOCAL_IMAGE" \
+          -f "$(params.dockerfile-path)" \
+          "$(params.context-path)"
+
+        echo "[INFO] Logging into Docker Hub registry"
+        buildah login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD" docker.io
+
+        echo "[INFO] Tagging image for Docker Hub: $REMOTE_IMAGE"
+        buildah tag \
+          --storage-driver=$STORAGE_DRIVER \
+          --root "$_CONTAINERS_STORAGE_ROOT" \
+          "$LOCAL_IMAGE" "$REMOTE_IMAGE"
+
+        echo "[INFO] Pushing image to Docker Hub"
+        buildah push \
+          --storage-driver=$STORAGE_DRIVER \
+          --root "$_CONTAINERS_STORAGE_ROOT" \
+          --tls-verify=false \
+          "$REMOTE_IMAGE"
+
+        echo "[INFO] Image pushed successfully to Docker Hub: $REMOTE_IMAGE"

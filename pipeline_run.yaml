@@ -39,6 +39,9 @@ spec:
     - name: client-auth-token-secret
       value: "client-auth-token-secret"
     - name: image-tag
-      value: "v1.0.0"
+      value: "latest"
     - name: image-name
       value: "vulnado-app"
+    - name: dockerhub-username
+      value: "eladwy"
+    
