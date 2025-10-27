@@ -169,3 +169,17 @@ spec:
           value: $(params.image-tag)
         - name: dockerhub-username
           value: $(params.dockerhub-username)
+    - name: grype-scan
+      runAfter: ["build-docker-image"]
+      taskRef:
+        name: grype-scan
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: image-name
+          value: $(params.image-name)
+        - name: image-tag
+          value: $(params.image-tag)
+        - name: dockerhub-username
+          value: $(params.dockerhub-username)
