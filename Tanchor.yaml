@@ -16,40 +16,27 @@ spec:
     - name: source
 
   steps:
+    - name: prepare-workspace
+      image: busybox
+      workingDir: "$(workspaces.source.path)"
+      script: |
+        #!/bin/sh
+        mkdir -p $(workspaces.source.path)/tmp
+        mkdir -p $(workspaces.source.path)/.grype
+        mkdir -p $(workspaces.source.path)/.cache
+        echo "Workspace prepared"
+    
     - name: grype-image-scan
-      image: curlimages/curl:latest
+      image: anchore/grype:v0.102.0
       workingDir: "$(workspaces.source.path)"
       env:
         - name: GRYPE_DB_CACHE_DIR
           value: "$(workspaces.source.path)/.grype"
-      script: |
-        #!/bin/sh
-        set -e
-        
-        # Install Grype to workspace (non-root writable location)
-        curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $(workspaces.source.path)
-        
-        IMAGE="docker.io/$(params.dockerhub-username)/$(params.image-name):$(params.image-tag)"
-        REPORT_JSON="$(workspaces.source.path)/grype-report.json"
-        REPORT_TABLE="$(workspaces.source.path)/grype-report.txt"
-        
-        echo "[INFO] Running Grype scan on $IMAGE"
-        
-        # Run scan and save both JSON and table formats
-        $(workspaces.source.path)/grype "$IMAGE" -o json > "$REPORT_JSON" || SCAN_STATUS=$?
-        $(workspaces.source.path)/grype "$IMAGE" -o table > "$REPORT_TABLE" || true
-        
-        echo ""
-        echo "=========================================="
-        echo "  Grype Vulnerability Scan Results"
-        echo "=========================================="
-        echo ""
-        cat "$REPORT_TABLE"
-        echo ""
-        
-        if [ "$SCAN_STATUS" != 0 ]; then
-          echo "[WARNING] Vulnerabilities found by Grype (see table above)"
-          exit 0
-        fi
-        
-        echo "[INFO] No vulnerabilities found by Grype"
+        - name: XDG_CACHE_HOME
+          value: "$(workspaces.source.path)/.cache"
+        - name: TMPDIR
+          value: "$(workspaces.source.path)/tmp"
+      args:
+        - "-o"
+        - "table"
+        - "docker.io/$(params.dockerhub-username)/$(params.image-name):$(params.image-tag)"
