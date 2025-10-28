@@ -3,6 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: vulnado-run-
 spec:
+  serviceAccountName: kube-bench-admin
   pipelineRef:
     name: vulnado-pipeline
   podTemplate:

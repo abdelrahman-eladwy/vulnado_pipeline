@@ -54,6 +54,7 @@ spec:
 
   tasks:
     - name: fetch-source
+      displayName: "Fetch Source Code"
       taskRef:
         name: git-clone-restricted
       params:
@@ -66,6 +67,7 @@ spec:
           workspace: shared-data
 
     - name: build-application
+      displayName: "Build Application"
       runAfter: ["fetch-source"]
       taskRef:
         name: vulnado-build
@@ -78,6 +80,7 @@ spec:
           workspace: shared-data
 
     - name: sca-evaluate
+      displayName: "SCA Sonatype IQ Evaluation"
       runAfter: ["build-application"]
       taskRef:
         name: sca-sonatype-iq
@@ -99,6 +102,7 @@ spec:
           workspace: shared-data
 
     - name: sast
+      displayName: "SAST Fortify Scan"
       runAfter: ["sca-evaluate"]
       taskRef:
         name: sast
@@ -122,6 +126,7 @@ spec:
           value: $(params.client-auth-token-secret)
 
     - name: hadolint-scan
+      displayName: "Hadolint Dockerfile Linting"
       runAfter: ["sast"]
       taskRef:
         name: hadolint-scan
@@ -133,6 +138,7 @@ spec:
           value: "$(workspaces.source.path)/Dockerfile"
 
     - name: build-docker-image
+      displayName: "Build and Push Docker Image"
       runAfter: ["hadolint-scan"]
       taskRef:
         name: build-docker-image
@@ -152,6 +158,7 @@ spec:
           value: $(params.dockerhub-username)
 
     - name: trivy-scan
+      displayName: "Trivy Docker Image Scan"
       runAfter: ["build-docker-image"]
       taskRef:
         name: trivy-scan
@@ -169,10 +176,15 @@ spec:
           value: $(params.image-tag)
         - name: dockerhub-username
           value: $(params.dockerhub-username)
-    - name: grype-scan
+    - name: anchor-scan
+      displayName: "Anchor Docker Image Scan"
       runAfter: ["build-docker-image"]
       taskRef:
         name: grype-scan
+        when:
+        - input: "$(params.run-build)"
+          operator: in
+          values: ["false"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -183,3 +195,12 @@ spec:
           value: $(params.image-tag)
         - name: dockerhub-username
           value: $(params.dockerhub-username)
+
+    - name: kube-bench-scan
+      displayName: "Kube-bench CIS Benchmark Scan"
+      runAfter: ["fetch-source"]
+      taskRef:
+        name: kube-bench-scan-full
+      workspaces:
+        - name: reports
+          workspace: shared-data

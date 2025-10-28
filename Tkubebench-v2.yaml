@@ -1,0 +1,205 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: kube-bench-scan-full
+  labels:
+    app.kubernetes.io/version: "0.2"
+  annotations:
+    tekton.dev/categories: Security
+    tekton.dev/tags: security, cis-benchmark
+    tekton.dev/displayName: "Kube-bench Full CIS Benchmark"
+spec:
+  description: >-
+    Runs kube-bench CIS Kubernetes Benchmark by launching a Job with hostPID access.
+
+  workspaces:
+    - name: reports
+      description: Workspace to store reports
+      optional: true
+
+  results:
+    - name: compliance-score
+      description: Overall compliance score percentage
+
+  steps:
+    - name: deploy-kube-bench-job
+      image: bitnami/kubectl:latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        echo "Creating kube-bench scan job with full cluster access..."
+        
+        # Delete old job if exists
+        kubectl delete job kube-bench-full-scan 2>/dev/null || true
+        
+        # Create the job with hostPID access
+        cat <<EOF | kubectl apply -f -
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: kube-bench-full-scan
+          labels:
+            app: kube-bench
+        spec:
+          template:
+            metadata:
+              labels:
+                app: kube-bench
+            spec:
+              hostPID: true
+              hostNetwork: true
+              containers:
+              - name: kube-bench
+                image: aquasec/kube-bench:v0.8.0
+                command: ["kube-bench"]
+                volumeMounts:
+                - name: var-lib-cni
+                  mountPath: /var/lib/cni
+                  readOnly: true
+                - name: var-lib-etcd
+                  mountPath: /var/lib/etcd
+                  readOnly: true
+                - name: var-lib-kubelet
+                  mountPath: /var/lib/kubelet
+                  readOnly: true
+                - name: var-lib-kube-scheduler
+                  mountPath: /var/lib/kube-scheduler
+                  readOnly: true
+                - name: var-lib-kube-controller-manager
+                  mountPath: /var/lib/kube-controller-manager
+                  readOnly: true
+                - name: etc-systemd
+                  mountPath: /etc/systemd
+                  readOnly: true
+                - name: lib-systemd
+                  mountPath: /lib/systemd/
+                  readOnly: true
+                - name: srv-kubernetes
+                  mountPath: /srv/kubernetes/
+                  readOnly: true
+                - name: etc-kubernetes
+                  mountPath: /etc/kubernetes
+                  readOnly: true
+                - name: usr-bin
+                  mountPath: /usr/local/mount-from-host/bin
+                  readOnly: true
+                - name: etc-cni-netd
+                  mountPath: /etc/cni/net.d/
+                  readOnly: true
+                - name: opt-cni-bin
+                  mountPath: /opt/cni/bin/
+                  readOnly: true
+              restartPolicy: Never
+              volumes:
+              - name: var-lib-cni
+                hostPath:
+                  path: /var/lib/cni
+              - name: var-lib-etcd
+                hostPath:
+                  path: /var/lib/etcd
+              - name: var-lib-kubelet
+                hostPath:
+                  path: /var/lib/kubelet
+              - name: var-lib-kube-scheduler
+                hostPath:
+                  path: /var/lib/kube-scheduler
+              - name: var-lib-kube-controller-manager
+                hostPath:
+                  path: /var/lib/kube-controller-manager
+              - name: etc-systemd
+                hostPath:
+                  path: /etc/systemd
+              - name: lib-systemd
+                hostPath:
+                  path: /lib/systemd
+              - name: srv-kubernetes
+                hostPath:
+                  path: /srv/kubernetes
+              - name: etc-kubernetes
+                hostPath:
+                  path: /etc/kubernetes
+              - name: usr-bin
+                hostPath:
+                  path: /usr/bin
+              - name: etc-cni-netd
+                hostPath:
+                  path: /etc/cni/net.d/
+              - name: opt-cni-bin
+                hostPath:
+                  path: /opt/cni/bin/
+        EOF
+        
+        echo "Job created successfully!"
+        
+    - name: collect-results
+      image: bitnami/kubectl:latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        echo "Waiting for kube-bench job to complete..."
+        kubectl wait --for=condition=complete job/kube-bench-full-scan --timeout=300s
+        
+        echo "Collecting scan results..."
+        POD_NAME=$(kubectl get pods -l app=kube-bench -o jsonpath='{.items[0].metadata.name}')
+        
+        echo "==================================================================="
+        echo "                 KUBE-BENCH FULL SCAN RESULTS"
+        echo "==================================================================="
+        kubectl logs $POD_NAME
+        
+        # Save logs if workspace is available
+        if [ -d "$(workspaces.reports.path)" ]; then
+          kubectl logs $POD_NAME > $(workspaces.reports.path)/kube-bench-full.txt
+          echo "Results saved to workspace"
+        fi
+        
+    - name: parse-score
+      image: bitnami/kubectl:latest
+      script: |
+        #!/bin/bash
+        set -e
+        
+        # Get the pod name
+        POD_NAME=$(kubectl get pods -l app=kube-bench -o jsonpath='{.items[0].metadata.name}')
+        
+        # Get logs and parse
+        LOGS=$(kubectl logs $POD_NAME)
+        
+        # Count PASS and FAIL
+        PASS_COUNT=$(echo "$LOGS" | grep -oP '(\d+) checks PASS' | grep -oP '\d+' | awk '{s+=$1} END {print s}')
+        FAIL_COUNT=$(echo "$LOGS" | grep -oP '(\d+) checks FAIL' | grep -oP '\d+' | awk '{s+=$1} END {print s}')
+        
+        # Default to 0 if empty
+        PASS_COUNT=${PASS_COUNT:-0}
+        FAIL_COUNT=${FAIL_COUNT:-0}
+        
+        # Calculate score
+        TOTAL=$((PASS_COUNT + FAIL_COUNT))
+        if [ $TOTAL -gt 0 ]; then
+          SCORE=$(awk "BEGIN {printf \"%.1f\", ($PASS_COUNT / $TOTAL) * 100}")
+        else
+          SCORE=0
+        fi
+        
+        echo ""
+        echo "============================================================"
+        echo "                   COMPLIANCE SUMMARY"
+        echo "============================================================"
+        echo "✅ Passed:    $PASS_COUNT"
+        echo "❌ Failed:    $FAIL_COUNT"
+        echo "📊 Compliance Score: ${SCORE}%"
+        echo "============================================================"
+        echo ""
+        
+        # Save score to results
+        echo -n "$SCORE" > /tekton/results/compliance-score
+    
+    - name: cleanup
+      image: bitnami/kubectl:latest
+      script: |
+        #!/bin/bash
+        echo "Cleaning up kube-bench job..."
+        kubectl delete job kube-bench-full-scan --ignore-not-found=true
+        echo "Cleanup complete"
