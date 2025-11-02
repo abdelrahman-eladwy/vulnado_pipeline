@@ -44,10 +44,16 @@ spec:
       type: string
     - name: image-name
       type: string
-      default: "vulnado-app"
+      default: "ekart-backend"
     - name: image-tag
       type: string
       default: "latest"
+    - name: dast-target-url
+      type: string
+      default: "http://34.1.41.80:30006/"
+    - name: dast-scan-settings-id
+      type: string
+      description: "DAST scan settings CI/CD token or ID"
 
   workspaces:
     - name: shared-data
@@ -71,10 +77,6 @@ spec:
       runAfter: ["fetch-source"]
       taskRef:
         name: vulnado-build
-      when:
-        - input: "$(params.run-build)"
-          operator: in
-          values: ["false"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -84,10 +86,6 @@ spec:
       runAfter: ["build-application"]
       taskRef:
         name: sca-sonatype-iq
-      when:
-        - input: "$(params.run-build)"
-          operator: in
-          values: ["true"]
       params:
         - name: nexus-iq-url
           value: $(params.nexus-iq-url)
@@ -106,10 +104,6 @@ spec:
       runAfter: ["sca-evaluate"]
       taskRef:
         name: sast
-      when:
-        - input: "$(params.run-build)"
-          operator: in
-          values: ["true"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -142,10 +136,6 @@ spec:
       runAfter: ["hadolint-scan"]
       taskRef:
         name: build-docker-image
-      when:
-        - input: "$(params.run-build)"
-          operator: in
-          values: ["false"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -157,15 +147,25 @@ spec:
         - name: dockerhub-username
           value: $(params.dockerhub-username)
 
+    - name: update-gitops
+      displayName: "Update GitOps Manifest"
+      runAfter: ["build-docker-image"]
+      taskRef:
+        name: update-gitops-manifest
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: image-name
+          value: "$(params.dockerhub-username)/$(params.image-name)"
+        - name: image-tag
+          value: "$(params.image-tag)"
+
     - name: trivy-scan
       displayName: "Trivy Docker Image Scan"
       runAfter: ["build-docker-image"]
       taskRef:
         name: trivy-scan
-      when:
-        - input: "$(params.run-build)"
-          operator: in
-          values: ["false"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -181,10 +181,6 @@ spec:
       runAfter: ["build-docker-image"]
       taskRef:
         name: grype-scan
-        when:
-        - input: "$(params.run-build)"
-          operator: in
-          values: ["false"]
       workspaces:
         - name: source
           workspace: shared-data
@@ -198,9 +194,29 @@ spec:
 
     - name: kube-bench-scan
       displayName: "Kube-bench CIS Benchmark Scan"
-      runAfter: ["fetch-source"]
+      runAfter: ["anchor-scan"]
       taskRef:
         name: kube-bench-scan-full
       workspaces:
         - name: reports
           workspace: shared-data
+
+    - name: dast-scan
+      displayName: "DAST Fortify Scan"
+      runAfter: ["trivy-scan", "anchor-scan"]
+      taskRef:
+        name: dast
+      workspaces:
+        - name: source
+          workspace: shared-data
+      params:
+        - name: target-url
+          value: $(params.dast-target-url)
+        - name: scan-settings-id
+          value: $(params.dast-scan-settings-id)
+        - name: ssc-url
+          value: $(params.ssc-url)
+        - name: ssc-auth-secret
+          value: $(params.ssc-auth-secret)
+        - name: client-auth-token-secret
+          value: $(params.client-auth-token-secret)

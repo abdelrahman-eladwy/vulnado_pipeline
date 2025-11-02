@@ -20,7 +20,7 @@ spec:
               storage: 10Gi
   params:
     - name: repo-url
-      value: https://github.com/ScaleSec/vulnado.git
+      value: https://github.com/ved-asole/eKart-ecommerce-backend
     - name: revision
       value: master
     - name: nexus-iq-url
@@ -28,7 +28,7 @@ spec:
     - name: nexus-iq-username
       value: "admin"
     - name: app-id
-      value: "vulnado"
+      value: "ekart"
     - name: ssc-url
       value: "http://34.1.41.80:8080/ssc"
     - name: ssc-application-id
@@ -42,7 +42,11 @@ spec:
     - name: image-tag
       value: "latest"
     - name: image-name
-      value: "vulnado-app"
+      value: "ekart-backend"
     - name: dockerhub-username
       value: "eladwy"
+    - name: dast-target-url
+      value: "http://34.1.41.80:30006/"
+    - name: dast-scan-settings-id
+      value: "591ed9ac-b1fe-4135-b3d0-80e40aa0b617"
     

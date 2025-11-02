@@ -22,6 +22,6 @@ spec:
         FILE=$(params.dockerfile-path)
         echo "[INFO] Running Hadolint on $FILE"
 
-        hadolint "$FILE" || true
+        hadolint "$FILE" 
 
         echo "[INFO] Dockerfile passed Hadolint checks."

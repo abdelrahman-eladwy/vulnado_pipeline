@@ -1,0 +1,113 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: dast
+spec:
+  description: |
+    Task that performs DAST scanning using Fortify ScanCentral DAST via fcli.
+  workspaces:
+    - name: source
+      description: The workspace for storing scan results
+  params:
+    - name: target-url
+      type: string
+      description: The target URL to scan
+    - name: scan-name
+      type: string
+      description: The name for the DAST scan
+      default: "Pipeline-DAST-Scan"
+    - name: scan-settings-id
+      type: string
+      description: The scan settings CI/CD token or ID
+    - name: ssc-url
+      type: string
+      description: The URL of the Fortify Software Security Center (SSC) server
+    - name: ssc-auth-secret
+      type: string
+      description: The name of the Kubernetes secret containing SSC credentials
+      default: "ssc-credentials"
+    - name: client-auth-token-secret
+      type: string
+      description: The name of the Kubernetes secret containing Client Auth Token credentials
+    - name: scan-policy
+      type: string
+      description: Scan policy name or id (optional)
+      default: ""
+    - name: scan-mode
+      type: string
+      description: Scan mode (CrawlOnly, CrawlAndAudit, AuditOnly)
+      default: "CrawlAndAudit"
+  steps:
+    - name: dast-scan
+      image: fortifydocker/fortify-ci-tools:latest-jdk-17
+      env:
+        - name: HOME
+          value: /workspace/source
+        - name: SSC_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ssc-auth-secret)
+              key: username
+        - name: SSC_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: $(params.ssc-auth-secret)
+              key: password
+        - name: CLIENT_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.client-auth-token-secret)
+              key: token
+      script: |
+        #!/bin/sh
+        set -e
+        echo "[INFO] HOME is set to $HOME"
+        mkdir -p "$HOME/.fortify"
+
+        # Login to SSC
+        echo "[INFO] Logging into SSC at $(params.ssc-url)"
+        fcli ssc session login \
+          --user=${SSC_USERNAME} \
+          --password=${SSC_PASSWORD} \
+          --url=$(params.ssc-url) \
+          --insecure
+          
+        # Create scan name with timestamp
+        SCAN_NAME="$(params.scan-name)-$(date +%Y%m%d-%H%M%S)"
+        echo "[INFO] Starting DAST scan: ${SCAN_NAME}"
+        echo "[INFO] Target URL: $(params.target-url)"
+        echo "[INFO] Scan Settings ID: $(params.scan-settings-id)"
+        
+        # Build the scan start command
+        SCAN_CMD="fcli sc-dast scan start \
+          --name=\"${SCAN_NAME}\" \
+          --settings=$(params.scan-settings-id) \
+          --mode=$(params.scan-mode) \
+          --store=DastScanId"
+
+        # Start the scan
+        echo "[INFO] Executing: ${SCAN_CMD}"
+        eval ${SCAN_CMD}
+        
+        echo "[INFO] DAST scan started successfully with ID: ::DastScanId::"
+        
+        # Wait for scan to complete
+        echo "[INFO] Waiting for DAST scan to complete..."
+        fcli sc-dast scan wait-for ::DastScanId:: --interval=60s
+        
+        echo "[INFO] DAST scan completed successfully"
+        
+        # Get scan results
+        echo "[INFO] Retrieving scan results..."
+        fcli sc-dast scan get ::DastScanId:: --output table
+        
+        # Logout from SSC
+        echo "[INFO] Logging out from SSC"
+        fcli ssc session logout
+
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault

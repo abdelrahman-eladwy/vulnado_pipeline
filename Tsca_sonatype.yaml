@@ -45,13 +45,26 @@ spec:
  
         # Create an empty debug log file
         touch $(workspaces.reports.path)/debug.log
+        
+        # Find the JAR file in target directory
+        echo "Looking for JAR file in $(workspaces.source.path)/target/"
+        ls -la $(workspaces.source.path)/target/ || true
+        
+        JAR_FILE=$(find $(workspaces.source.path)/target -name "*.jar" -type f | head -1)
+        
+        if [ -z "$JAR_FILE" ]; then
+          echo "ERROR: No JAR file found in target directory"
+          exit 1
+        fi
+        
+        echo "Found JAR file: $JAR_FILE"
        
         # Run the Sonatype scan with credentials from environment variables
         /sonatype/evaluate \
           -s $(params.nexus-iq-url) \
           -a "${SONATYPE_USERNAME}:${SONATYPE_PASSWORD}" \
           -i $(params.iq-application-id) \
-          $(workspaces.source.path)/target/vulnado-0.0.1-SNAPSHOT.jar > $(workspaces.reports.path)/scan-output.txt 2>&1
+          "$JAR_FILE" > $(workspaces.reports.path)/scan-output.txt 2>&1
 
         echo "Scan complete. Check the reports in $(workspaces.reports.path)/"
       securityContext:

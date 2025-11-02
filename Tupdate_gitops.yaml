@@ -1,0 +1,168 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: update-gitops-manifest
+  labels:
+    app.kubernetes.io/version: "0.1"
+spec:
+  description: |
+    Updates the Kubernetes manifest in GitOps repository with new image tag
+  
+  params:
+    - name: gitops-repo-url
+      type: string
+      description: GitOps repository URL
+      default: "https://github.com/abdelrahman-eladwy/k8s-repo.git"
+    
+    - name: gitops-branch
+      type: string
+      description: Git branch to update
+      default: "main"
+    
+    - name: manifest-path
+      type: string
+      description: Path to K8s manifest file
+      default: "backend.yaml"
+    
+    - name: image-name
+      type: string
+      description: Application image name (e.g., username/app-name or registry/namespace/app-name)
+      default: "ekart-backend"
+    
+    - name: image-tag
+      type: string
+      description: New image tag
+  
+  workspaces:
+    - name: source
+      description: Workspace to clone gitops repo
+  
+  results:
+    - name: commit-sha
+      description: Git commit SHA after update
+    
+    - name: updated-image
+      description: Full image reference
+  
+  steps:
+    - name: update-gitops-manifest
+      image: alpine/git:latest
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: GIT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: git-credentials
+              key: username
+              optional: true
+        - name: GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: git-credentials
+              key: token
+              optional: true
+      script: |
+        #!/bin/sh
+        set -e
+        
+        # Configuration
+        REPO_URL="$(params.gitops-repo-url)"
+        BRANCH="$(params.gitops-branch)"
+        MANIFEST="$(params.manifest-path)"
+        IMAGE_NAME="$(params.image-name)"
+        IMAGE_TAG="$(params.image-tag)"
+        FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
+        
+        echo "=========================================="
+        echo "[INFO] GitOps Manifest Update"
+        echo "=========================================="
+        echo "Repository:    ${REPO_URL}"
+        echo "Branch:        ${BRANCH}"
+        echo "Manifest:      ${MANIFEST}"
+        echo "Image:         ${FULL_IMAGE}"
+        echo "=========================================="
+        echo ""
+        
+        # Step 1: Clone repository
+        echo "[INFO] Cloning GitOps repository..."
+        if [ -n "$GIT_USERNAME" ] && [ -n "$GIT_TOKEN" ]; then
+          # Use token authentication
+          PROTOCOL=$(echo $REPO_URL | grep :// | sed -e's,^\(.*://\).*,\1,g')
+          URL_NO_PROTOCOL=$(echo $REPO_URL | sed -e s,$PROTOCOL,,g)
+          AUTH_URL="${PROTOCOL}${GIT_USERNAME}:${GIT_TOKEN}@${URL_NO_PROTOCOL}"
+          git clone --depth 1 --branch ${BRANCH} ${AUTH_URL} gitops
+        else
+          git clone --depth 1 --branch ${BRANCH} ${REPO_URL} gitops
+        fi
+        
+        cd gitops
+        echo "[INFO] Repository cloned successfully"
+        echo ""
+        
+        # Step 2: Check if manifest exists
+        if [ ! -f "${MANIFEST}" ]; then
+          echo "[ERROR] Manifest file not found: ${MANIFEST}"
+          exit 1
+        fi
+        
+        # Step 3: Show current image
+        echo "[INFO] Current image in manifest:"
+        grep "image:" "${MANIFEST}" | grep "${IMAGE_NAME}" || echo "  Not found"
+        echo ""
+        
+        # Step 4: Update image using sed
+        echo "[INFO] Updating image to: ${FULL_IMAGE}"
+        
+        # Try multiple patterns to find and replace the image
+        if grep -q "image: .*${IMAGE_NAME}" "${MANIFEST}"; then
+          # Pattern 1: image contains the image name
+          sed -i "s|image: .*${IMAGE_NAME}[^ ]*|image: ${FULL_IMAGE}|g" "${MANIFEST}"
+        elif grep -q "image: .*:" "${MANIFEST}"; then
+          # Pattern 2: Replace any image line (fallback)
+          sed -i "s|image: .*:.*|image: ${FULL_IMAGE}|g" "${MANIFEST}"
+        else
+          echo "[ERROR] No image field found in manifest"
+          exit 1
+        fi
+        
+        # Step 5: Show updated image
+        echo "[INFO] Updated image in manifest:"
+        grep "image:" "${MANIFEST}" || echo "[ERROR] No image found after update"
+        echo ""
+        
+        # Save result
+        echo -n "${FULL_IMAGE}" > /tekton/results/updated-image
+        
+        # Step 6: Configure Git
+        echo "[INFO] Configuring Git..."
+        git config user.name "Tekton Pipeline"
+        git config user.email "tekton@pipeline.local"
+        
+        # Step 7: Check for changes
+        if git diff --quiet; then
+          echo "[WARN] No changes detected. Skipping commit."
+          git rev-parse HEAD > /tekton/results/commit-sha
+          exit 0
+        fi
+        
+        # Step 8: Commit changes
+        echo "[INFO] Committing changes..."
+        git add ${MANIFEST}
+        git commit -m "🚀 Update ${IMAGE_NAME} to ${IMAGE_TAG}"
+        
+        COMMIT_SHA=$(git rev-parse HEAD)
+        echo "[INFO] Committed: ${COMMIT_SHA}"
+        echo -n "${COMMIT_SHA}" > /tekton/results/commit-sha
+        echo ""
+        
+        # Step 9: Push changes
+        echo "[INFO] Pushing changes to repository..."
+        git push origin ${BRANCH}
+        
+        echo ""
+        echo "=========================================="
+        echo "[SUCCESS] GitOps repository updated!"
+        echo "=========================================="
+        echo "Commit SHA:     ${COMMIT_SHA}"
+        echo "Updated Image:  ${FULL_IMAGE}"
+        echo "=========================================="
